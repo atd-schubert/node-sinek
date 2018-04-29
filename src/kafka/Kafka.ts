@@ -10,24 +10,7 @@ import {
   KafkaClientOptions,
   Offset,
 } from "kafka-node";
-import { ILogger } from "../common";
-
-const NOOPL: ILogger = {
-  debug: debug("sinek:debug"),
-  error: debug("sinek:error"),
-  info: debug("sinek:info"),
-  warn: debug("sinek:warn"),
-};
-
-const DEFAULT_RETRY_OPTIONS = {
-  factor: 3,
-  forever: true,
-  maxTimeout: 30000, // 30 secs
-  minTimeout: 1000, // 1 sec
-  randomize: true,
-  retries: 1000, // overwritten by forever
-  unref: false,
-};
+import { DEFAULT_RETRY_OPTIONS, ILogger, NOOPL } from "../common";
 
 export class Kafka extends EventEmitter {
 
@@ -122,7 +105,7 @@ export class Kafka extends EventEmitter {
   }
 
   public setConsumerOffset(topic: string = "t", partition: number = 0, offset: number = 0): void {
-    this._getLogger().debug("adjusting offset for topic: " + topic + " on partition: " + partition + " to " + offset);
+    this.getLogger().debug("adjusting offset for topic: " + topic + " on partition: " + partition + " to " + offset);
     if (this.consumer) {
       this.consumer.setOffset(topic, partition, offset);
     }
@@ -212,9 +195,9 @@ export class Kafka extends EventEmitter {
     this.pause();
 
     this.targetTopics = topics;
-    this._getLogger().info("starting ConsumerGroup for topic: " + JSON.stringify(topics));
+    this.getLogger().info("starting ConsumerGroup for topic: " + JSON.stringify(topics));
 
-    this._attachConsumerListeners(dontListenForSIGINT);
+    this.attachConsumerListeners(dontListenForSIGINT);
   }
 
   public becomeProducer(
@@ -260,9 +243,9 @@ export class Kafka extends EventEmitter {
     this.producer = new HighLevelProducer(this.client, _options);
     this.isProducer = true;
 
-    this._getLogger().info("starting Producer.");
+    this.getLogger().info("starting Producer.");
     this.targetTopics = targetTopics;
-    this._attachProducerListeners();
+    this.attachProducerListeners();
   }
 
   /**
@@ -283,7 +266,7 @@ export class Kafka extends EventEmitter {
         reject(new Error("No client initialized"));
       }
       this.client!.refreshMetadata(topics, () => {
-        this._getLogger().info("meta-data refreshed.");
+        this.getLogger().info("meta-data refreshed.");
         resolve();
       });
     });
@@ -321,17 +304,17 @@ export class Kafka extends EventEmitter {
   public close(commit = false): Promise<any> | null {
 
     if (this.isConsumer) {
-      return this._closeConsumer(commit);
+      return this.closeConsumer(commit);
     }
 
     if (this.isProducer) {
-      return this._closeProducer();
+      return this.closeProducer();
     }
 
     return null;
   }
 
-  private _getLogger(): ILogger {
+  private getLogger(): ILogger {
 
     if (this.logger) {
       return this.logger;
@@ -340,21 +323,21 @@ export class Kafka extends EventEmitter {
     return NOOPL;
   }
 
-  private _attachProducerListeners(): void {
+  private attachProducerListeners(): void {
 
     this.client!.on("connect", () => {
-      this._getLogger().info("producer is connected.");
+      this.getLogger().info("producer is connected.");
     });
 
     this.producer!.on("ready", () => {
 
-      this._getLogger().debug("producer ready fired.");
+      this.getLogger().debug("producer ready fired.");
       if (this.producerReadyFired) {
         return;
       }
 
       this.producerReadyFired = true;
-      this._getLogger().info("producer is ready.");
+      this.getLogger().info("producer is ready.");
 
       // prevents key-partition errors
       this.refreshMetadata(this.targetTopics).then(() => {
@@ -368,10 +351,10 @@ export class Kafka extends EventEmitter {
     });
   }
 
-  private _attachConsumerListeners(dontListenForSIGINT = false, commitOnSIGINT = false): void {
+  private attachConsumerListeners(dontListenForSIGINT = false, commitOnSIGINT = false): void {
 
     this.consumer!.once("connect", () => {
-      this._getLogger().info("consumer is connected / ready.");
+      this.getLogger().info("consumer is connected / ready.");
       this.emit("connect");
       this.emit("ready");
     });
@@ -400,23 +383,23 @@ export class Kafka extends EventEmitter {
     }
   }
 
-  private _resetConsumer(): void {
+  private resetConsumer(): void {
     this.isConsumer = false;
     this.client = null;
     this.consumer = null;
   }
 
-  private _resetProducer(): void {
+  private resetProducer(): void {
     this.isProducer = false;
     this.client = null;
     this.producer = null;
     this.producerReadyFired = false;
   }
 
-  private _closeConsumer(commit: boolean): Promise<any> {
+  private closeConsumer(commit: boolean): Promise<any> {
     return new Promise((resolve, reject) => {
 
-      this._getLogger().info("trying to close consumer.");
+      this.getLogger().info("trying to close consumer.");
 
       if (!this.consumer) {
         return reject("consumer is null");
@@ -425,14 +408,14 @@ export class Kafka extends EventEmitter {
       if (!commit) {
 
         this.consumer.close(() => {
-          this._resetConsumer();
+          this.resetConsumer();
           resolve();
         });
 
         return;
       }
 
-      this._getLogger().info("trying to commit kafka consumer before close.");
+      this.getLogger().info("trying to commit kafka consumer before close.");
 
       this.consumer.commit((err, data) => {
 
@@ -442,24 +425,24 @@ export class Kafka extends EventEmitter {
 
         // TODO: TypeScript gives us the hint that this.consumer can possibly be null!
         this.consumer!.close(() => {
-          this._resetConsumer();
+          this.resetConsumer();
           resolve(data);
         });
       });
     });
   }
 
-  private _closeProducer(): Promise<boolean> {
+  private closeProducer(): Promise<boolean> {
     return new Promise((resolve, reject) => {
 
-      this._getLogger().info("trying to close producer.");
+      this.getLogger().info("trying to close producer.");
 
       if (!this.producer) {
         return reject("producer is null");
       }
 
       this.producer.close(() => {
-        this._resetProducer();
+        this.resetProducer();
         resolve(true);
       });
     });
