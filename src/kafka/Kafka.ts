@@ -1,27 +1,32 @@
-import { EventEmitter } from "events";
-import {
-  ConsumerGroup, ConsumerGroupOptions, Offset, Client, KafkaClient, HighLevelProducer,
-  KafkaClientOptions
-} from "kafka-node";
 import Promise from "bluebird";
 import debug from "debug";
+import { EventEmitter } from "events";
+import {
+  Client,
+  ConsumerGroup,
+  ConsumerGroupOptions,
+  HighLevelProducer,
+  KafkaClient,
+  KafkaClientOptions,
+  Offset,
+} from "kafka-node";
 import { ILogger } from "../common";
 
 const NOOPL: ILogger = {
   debug: debug("sinek:debug"),
+  error: debug("sinek:error"),
   info: debug("sinek:info"),
   warn: debug("sinek:warn"),
-  error: debug("sinek:error"),
 };
 
 const DEFAULT_RETRY_OPTIONS = {
-  retries: 1000, // overwritten by forever
   factor: 3,
-  minTimeout: 1000, // 1 sec
-  maxTimeout: 30000, // 30 secs
-  randomize: true,
   forever: true,
-  unref: false
+  maxTimeout: 30000, // 30 secs
+  minTimeout: 1000, // 1 sec
+  randomize: true,
+  retries: 1000, // overwritten by forever
+  unref: false,
 };
 
 class Kafka extends EventEmitter {
@@ -41,14 +46,18 @@ class Kafka extends EventEmitter {
   // private declarations
 
   // consumer
-  private _autoCommitEnabled?: boolean;
-  private _isManual: boolean = false;
+  private autoCommitEnabled?: boolean;
+  private isManual: boolean = false;
   // producer
-  private _producerReadyFired: boolean = false;
+  private producerReadyFired: boolean = false;
 
   // common
 
-  constructor(public conString: string, private _logger: ILogger | null = null, public connectDirectlyToBroker: boolean = false) {
+  constructor(
+    public conString: string,
+    private logger: ILogger | null = null,
+    public connectDirectlyToBroker: boolean = false,
+  ) {
     super();
   }
 
@@ -112,22 +121,6 @@ class Kafka extends EventEmitter {
     return this.targetTopics;
   }
 
-  /**
-   * @deprecated
-   */
-  public hardOffsetReset(): Promise<never> {
-    return Promise.reject("hardOffsetReset has been removed, as it was supporting bad kafka consumer behaviour.");
-  }
-
-  private _getLogger(): ILogger {
-
-    if (this._logger) {
-      return this._logger;
-    }
-
-    return NOOPL;
-  }
-
   public setConsumerOffset(topic: string = "t", partition: number = 0, offset: number = 0): void {
     this._getLogger().debug("adjusting offset for topic: " + topic + " on partition: " + partition + " to " + offset);
     if (this.consumer) {
@@ -150,12 +143,23 @@ class Kafka extends EventEmitter {
     });
   }
 
-  public becomeManualConsumer(topics?: string[], groupId?: string, options?: ConsumerGroupOptions, dontListenForSIGINT?: boolean): void {
-    this._isManual = true;
+  public becomeManualConsumer(
+    topics?: string[],
+    groupId?: string,
+    options?: ConsumerGroupOptions,
+    dontListenForSIGINT?: boolean,
+  ): void {
+    this.isManual = true;
     return this.becomeConsumer(topics, groupId, options, dontListenForSIGINT, false);
   }
 
-  public becomeConsumer(topics = ["t"], groupId = "kafka-node-group", options?: ConsumerGroupOptions, dontListenForSIGINT = false, autoCommit = true): void {
+  public becomeConsumer(
+    topics = ["t"],
+    groupId = "kafka-node-group",
+    options?: ConsumerGroupOptions,
+    dontListenForSIGINT = false,
+    autoCommit = true,
+  ): void {
 
     if (!Array.isArray(topics) || topics.length <= 0) {
       throw new Error("becomeConsumer requires a valid topics array, with at least a single topic.");
@@ -178,27 +182,27 @@ class Kafka extends EventEmitter {
     }
 
     options = {
+      autoCommit,
+      autoCommitIntervalMs: 5000,
+      connectRetryOptions: this.connectDirectlyToBroker ? DEFAULT_RETRY_OPTIONS : undefined,
+      fetchMaxBytes: 1024 * 100,
+      fetchMaxWaitMs: 100,
+      fetchMinBytes: 1,
+      fromOffset: "earliest", // latest
+      groupId,
       host: this.connectDirectlyToBroker ? undefined : this.conString,
       kafkaHost: this.connectDirectlyToBroker ? this.conString : undefined,
       // zk: undefined,
       // batch: undefined,
-      ssl: false,
-      groupId,
-      sessionTimeout: 30000,
-      protocol: ["roundrobin"],
-      fromOffset: "earliest", // latest
       migrateHLC: false,
       migrateRolling: false,
-      fetchMaxBytes: 1024 * 100,
-      fetchMinBytes: 1,
-      fetchMaxWaitMs: 100,
-      autoCommit,
-      autoCommitIntervalMs: 5000,
-      connectRetryOptions: this.connectDirectlyToBroker ? DEFAULT_RETRY_OPTIONS : undefined,
+      protocol: ["roundrobin"],
+      sessionTimeout: 30000,
+      ssl: false,
       ...options,
     };
 
-    this._autoCommitEnabled = options!.autoCommit;
+    this.autoCommitEnabled = options!.autoCommit;
 
     this.consumer = new ConsumerGroup(options!, topics);
     this.client = this.consumer.client;
@@ -211,7 +215,11 @@ class Kafka extends EventEmitter {
     this._attachConsumerListeners(dontListenForSIGINT);
   }
 
-  public becomeProducer(targetTopics: string[] = ["t"], clientId: string = "kafka-node-client", options: KafkaClientOptions = {}): void {
+  public becomeProducer(
+    targetTopics: string[] = ["t"],
+    clientId: string = "kafka-node-client",
+    options: KafkaClientOptions = {},
+  ): void {
 
     if (this.isConsumer) {
       throw new Error("this kafka instance has already been initialised as consumer.");
@@ -222,9 +230,9 @@ class Kafka extends EventEmitter {
     }
 
     options = {
-      requireAcks: 1,
       ackTimeoutMs: 100,
       partitionerType: 3,
+      requireAcks: 1,
       ...options,
     };
 
@@ -232,13 +240,13 @@ class Kafka extends EventEmitter {
     if (this.connectDirectlyToBroker) {
 
       const kafkaOptions: KafkaClientOptions = {
+        autoConnect: options.autoConnect || true, // TODO: makes it sense???
+        connectRetryOptions: DEFAULT_RETRY_OPTIONS,
+        connectTimeout: 1000,
         kafkaHost: this.conString,
+        requestTimeout: 30000,
         ssl: !!options.sslOptions,
         sslOptions: options.sslOptions,
-        connectTimeout: 1000,
-        requestTimeout: 30000,
-        autoConnect: options.autoConnect || true,
-        connectRetryOptions: DEFAULT_RETRY_OPTIONS,
       };
 
       this.client = new KafkaClient(kafkaOptions);
@@ -255,129 +263,11 @@ class Kafka extends EventEmitter {
     this._attachProducerListeners();
   }
 
-  private _attachProducerListeners(): void {
-
-    this.client!.on("connect", () => {
-      this._getLogger().info("producer is connected.");
-    });
-
-    this.producer!.on("ready", () => {
-
-      this._getLogger().debug("producer ready fired.");
-      if (this._producerReadyFired) {
-        return;
-      }
-
-      this._producerReadyFired = true;
-      this._getLogger().info("producer is ready.");
-
-      // prevents key-partition errors
-      this.refreshMetadata(this.targetTopics).then(() => {
-        this.emit("ready");
-      });
-    });
-
-    this.producer!.on("error", (error: Error) => {
-      // dont log these, they emit very often
-      this.emit("error", error);
-    });
-  }
-
-  private _attachConsumerListeners(dontListenForSIGINT = false, commitOnSIGINT = false): void {
-
-    this.consumer!.once("connect", () => {
-      this._getLogger().info("consumer is connected / ready.");
-      this.emit("connect");
-      this.emit("ready");
-    });
-
-    // do not listen for "message" here
-
-    this.consumer!.on("error", error => {
-      // don't log these, they emit very often
-      this.emit("error", error);
-    });
-
-    this.consumer!.on("offsetOutOfRange", error => {
-      // don't log these, they emit very often
-      this.emit("error", error);
-    });
-
-    // prevents re-balance errors
-    if (!dontListenForSIGINT) {
-      process.on("SIGINT", () => {
-        if (this.consumer) {
-          this.consumer.close(commitOnSIGINT, () => {
-            process.exit();
-          });
-        }
-      });
-    }
-  }
-
-  private _resetConsumer(): void {
-    this.isConsumer = false;
-    this.client = null;
-    this.consumer = null;
-  }
-
-  private _resetProducer(): void {
-    this.isProducer = false;
-    this.client = null;
-    this.producer = null;
-    this._producerReadyFired = false;
-  }
-
-  private _closeConsumer(commit: boolean): Promise<any> {
-    return new Promise((resolve, reject) => {
-
-      this._getLogger().info("trying to close consumer.");
-
-      if (!this.consumer) {
-        return reject("consumer is null");
-      }
-
-      if (!commit) {
-
-        this.consumer.close(() => {
-          this._resetConsumer();
-          resolve();
-        });
-
-        return;
-      }
-
-      this._getLogger().info("trying to commit kafka consumer before close.");
-
-      this.consumer.commit((err, data) => {
-
-        if (err) {
-          return reject(err);
-        }
-
-        // TODO: TypeScript gives us the hint that this.consumer can possibly be null!
-        this.consumer!.close(() => {
-          this._resetConsumer();
-          resolve(data);
-        });
-      });
-    });
-  }
-
-  private _closeProducer(): Promise<boolean> {
-    return new Promise((resolve, reject) => {
-
-      this._getLogger().info("trying to close producer.");
-
-      if (!this.producer) {
-        return reject("producer is null");
-      }
-
-      this.producer.close(() => {
-        this._resetProducer();
-        resolve(true);
-      });
-    });
+  /**
+   * @deprecated
+   */
+  public hardOffsetReset(): Promise<never> {
+    return Promise.reject("hardOffsetReset has been removed, as it was supporting bad kafka consumer behaviour.");
   }
 
   public refreshMetadata(topics: string[] = []): Promise<void> {
@@ -437,6 +327,140 @@ class Kafka extends EventEmitter {
     }
 
     return null;
+  }
+
+  private _getLogger(): ILogger {
+
+    if (this.logger) {
+      return this.logger;
+    }
+
+    return NOOPL;
+  }
+
+  private _attachProducerListeners(): void {
+
+    this.client!.on("connect", () => {
+      this._getLogger().info("producer is connected.");
+    });
+
+    this.producer!.on("ready", () => {
+
+      this._getLogger().debug("producer ready fired.");
+      if (this.producerReadyFired) {
+        return;
+      }
+
+      this.producerReadyFired = true;
+      this._getLogger().info("producer is ready.");
+
+      // prevents key-partition errors
+      this.refreshMetadata(this.targetTopics).then(() => {
+        this.emit("ready");
+      });
+    });
+
+    this.producer!.on("error", (error: Error) => {
+      // dont log these, they emit very often
+      this.emit("error", error);
+    });
+  }
+
+  private _attachConsumerListeners(dontListenForSIGINT = false, commitOnSIGINT = false): void {
+
+    this.consumer!.once("connect", () => {
+      this._getLogger().info("consumer is connected / ready.");
+      this.emit("connect");
+      this.emit("ready");
+    });
+
+    // do not listen for "message" here
+
+    this.consumer!.on("error", (error: Error) => {
+      // don't log these, they emit very often
+      this.emit("error", error);
+    });
+
+    this.consumer!.on("offsetOutOfRange", (error: Error) => {
+      // don't log these, they emit very often
+      this.emit("error", error);
+    });
+
+    // prevents re-balance errors
+    if (!dontListenForSIGINT) {
+      process.on("SIGINT", () => {
+        if (this.consumer) {
+          this.consumer.close(commitOnSIGINT, () => {
+            process.exit();
+          });
+        }
+      });
+    }
+  }
+
+  private _resetConsumer(): void {
+    this.isConsumer = false;
+    this.client = null;
+    this.consumer = null;
+  }
+
+  private _resetProducer(): void {
+    this.isProducer = false;
+    this.client = null;
+    this.producer = null;
+    this.producerReadyFired = false;
+  }
+
+  private _closeConsumer(commit: boolean): Promise<any> {
+    return new Promise((resolve, reject) => {
+
+      this._getLogger().info("trying to close consumer.");
+
+      if (!this.consumer) {
+        return reject("consumer is null");
+      }
+
+      if (!commit) {
+
+        this.consumer.close(() => {
+          this._resetConsumer();
+          resolve();
+        });
+
+        return;
+      }
+
+      this._getLogger().info("trying to commit kafka consumer before close.");
+
+      this.consumer.commit((err, data) => {
+
+        if (err) {
+          return reject(err);
+        }
+
+        // TODO: TypeScript gives us the hint that this.consumer can possibly be null!
+        this.consumer!.close(() => {
+          this._resetConsumer();
+          resolve(data);
+        });
+      });
+    });
+  }
+
+  private _closeProducer(): Promise<boolean> {
+    return new Promise((resolve, reject) => {
+
+      this._getLogger().info("trying to close producer.");
+
+      if (!this.producer) {
+        return reject("producer is null");
+      }
+
+      this.producer.close(() => {
+        this._resetProducer();
+        resolve(true);
+      });
+    });
   }
 }
 
