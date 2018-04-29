@@ -29,7 +29,7 @@ const DEFAULT_RETRY_OPTIONS = {
   unref: false,
 };
 
-class Kafka extends EventEmitter {
+export class Kafka extends EventEmitter {
 
   public client: Client | null = null;
 
@@ -465,5 +465,3 @@ class Kafka extends EventEmitter {
     });
   }
 }
-
-export = Kafka;
