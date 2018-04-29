@@ -192,13 +192,15 @@ class Kafka extends EventEmitter {
       groupId,
       host: this.connectDirectlyToBroker ? undefined : this.conString,
       kafkaHost: this.connectDirectlyToBroker ? this.conString : undefined,
-      // zk: undefined,
-      // batch: undefined,
       migrateHLC: false,
       migrateRolling: false,
       protocol: ["roundrobin"],
       sessionTimeout: 30000,
       ssl: false,
+
+      // zk: undefined,
+      // batch: undefined,
+
       ...options,
     };
 
