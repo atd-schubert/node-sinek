@@ -1,2 +1,2 @@
 //link
-module.exports = require("./lib/Sinek.js");
+module.exports = require("./lib/Sinek");
