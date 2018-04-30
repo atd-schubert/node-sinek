@@ -44,7 +44,7 @@ export class Kafka extends EventEmitter {
     super();
   }
 
-  public getPartitions(topic: string): Promise<any> {
+  public getPartitions(topic: string): Promise<number[]> {
     return new Promise((resolve, reject) => {
 
       if (!this.client) {
@@ -57,7 +57,7 @@ export class Kafka extends EventEmitter {
           return reject("failed to get offsets of topic: " + topic + "; " + err);
         }
 
-        resolve(Object.keys(data[topic]).map((key) => key));
+        resolve(Object.keys(data[topic]).map((key) => parseInt(key, 10)));
       });
     });
   }
